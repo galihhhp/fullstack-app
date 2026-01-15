@@ -1,26 +1,29 @@
-# Elysia React App Monorepo
+# Task Services React App Monorepo
 
-A modern fullstack monorepo: **ElysiaJS + Bun** for the backend, **React + Vite** for the frontend. Containerized, production-ready, and feature-flagged for easy extensibility.
+A modern fullstack monorepo: **ElysiaJS + Bun** for task services, **Fastify + Node.js** for user services, **React + Vite** for the frontend. Containerized, production-ready, and feature-flagged for easy extensibility.
 
 ---
 
 ## 🏗️ Project Structure
 
 ```
-elysia-react-app/
-├── elysia-backend/      # ElysiaJS + Bun backend (API, DB, logging)
-├── react-frontend/      # React + Vite frontend (SPA, API integration)
-└── README.md            # ← You are here
+task-services-react-app/
+├── task-services/      # ElysiaJS + Bun backend (Task API, DB, logging)
+├── user-services/     # Fastify + Node.js backend (User API, DB, metrics)
+├── react-frontend/    # React + Vite frontend (SPA, API integration)
+└── README.md          # ← You are here
 ```
 
 ---
 
 ## ✨ Features
 
-- **Fullstack, Modular**: Clean separation of backend and frontend.
-- **Containerized**: Dockerfiles for both apps, ready for CI/CD.
+- **Fullstack, Modular**: Clean separation of backend services and frontend.
+- **Microservices Architecture**: Separate task-services and user-services backends.
+- **Containerized**: Dockerfiles for all services, ready for CI/CD.
 - **Feature Flags**: Enable/disable edit & delete task features via env.
-- **Structured Logging**: Winston for backend logs.
+- **Structured Logging**: Winston for task-services, Fastify logger for user-services.
+- **Prometheus Metrics**: Both backends expose `/metrics` endpoints for monitoring.
 - **PostgreSQL Ready**: Connection pooling, env-configurable table/column names.
 - **Modern Frontend**: React, Vite, TypeScript, mobile-first, accessible.
 
@@ -36,17 +39,21 @@ elysia-react-app/
 
 ---
 
-## 🛠️ Backend (elysia-backend)
+## 🛠️ Backend Services
 
-### Setup
+### Task Services (task-services)
+
+Task management API built with ElysiaJS and Bun.
+
+#### Setup
 
 ```bash
-cd elysia-backend
+cd task-services
 bun install
 cp .env.example .env # Edit as needed
 ```
 
-### Environment Variables
+#### Environment Variables
 
 | Variable            | Description                             | Default     |
 | ------------------- | --------------------------------------- | ----------- |
@@ -62,18 +69,18 @@ cp .env.example .env # Edit as needed
 | FEATURE_EDIT_TASK   | Enable edit task API ("true"/"false")   | false       |
 | FEATURE_DELETE_TASK | Enable delete task API ("true"/"false") | false       |
 
-### Scripts
+#### Scripts
 
 - **Dev:** `bun run dev`
 - **Prod:** `bun start`
 
-### Docker
+#### Docker
 
 ```bash
-cd elysia-backend
-docker build -t your-dockerhub-username/elysia-backend:latest .
+cd task-services
+docker build -t your-dockerhub-username/task-services:latest .
 docker run -d \
-  --name elysia-app \
+  --name task-services-app \
   -p 3000:3000 \
   -e NODE_ENV=production \
   -e DB_HOST=your-db-host \
@@ -86,16 +93,84 @@ docker run -d \
   -e DB_COLUMN_TASK=task \
   -e FEATURE_EDIT_TASK=true \
   -e FEATURE_DELETE_TASK=true \
-  your-dockerhub-username/elysia-backend:latest
+  your-dockerhub-username/task-services:latest
 ```
 
-### API Endpoints
+#### API Endpoints
 
 - `GET /` — Welcome message
 - `GET /tasks` — List all tasks
+- `GET /tasks/:id` — Get task by ID
 - `POST /tasks` — Add a task `{ task: string }`
 - `PUT /tasks/:id` — Edit a task (if enabled)
 - `DELETE /tasks/:id` — Delete a task (if enabled)
+- `GET /metrics` — Prometheus metrics endpoint
+
+---
+
+### User Services (user-services)
+
+User management API built with Fastify and Node.js.
+
+#### Setup
+
+```bash
+cd user-services
+pnpm install
+cp .env.example .env # Edit as needed
+```
+
+#### Environment Variables
+
+| Variable                  | Description                             | Default     |
+| ------------------------- | --------------------------------------- | ----------- |
+| USER_SERVICE_PORT         | Service port                            | 4000        |
+| USER_SERVICE_HOST         | Service host                            | 0.0.0.0     |
+| DB_HOST                   | Database host                           | localhost   |
+| DB_PORT                   | Database port                           | 5432        |
+| DB_USER                   | Database username                       | postgres    |
+| DB_PASSWORD               | Database password                       | ""          |
+| DB_NAME                   | Database name                           | postgres    |
+| DB_USERS_TABLE            | Table name for users                    | users       |
+| DB_USERS_COLUMN_ID        | ID column name                          | id          |
+| DB_USERS_COLUMN_EMAIL     | Email column name                       | email       |
+| DB_USERS_COLUMN_NAME      | Name column name                        | name        |
+
+#### Scripts
+
+- **Dev:** `pnpm run dev`
+- **Build:** `pnpm run build`
+- **Start:** `pnpm start`
+
+#### Docker
+
+```bash
+cd user-services
+docker build -t your-dockerhub-username/user-services:latest .
+docker run -d \
+  --name user-services-app \
+  -p 4000:4000 \
+  -e DB_HOST=your-db-host \
+  -e DB_PORT=5432 \
+  -e DB_USER=postgres \
+  -e DB_PASSWORD=yourpassword \
+  -e DB_NAME=postgres \
+  -e DB_USERS_TABLE=users \
+  -e DB_USERS_COLUMN_ID=id \
+  -e DB_USERS_COLUMN_EMAIL=email \
+  -e DB_USERS_COLUMN_NAME=name \
+  your-dockerhub-username/user-services:latest
+```
+
+#### API Endpoints
+
+- `GET /` — Welcome message
+- `GET /users` — List all users
+- `GET /users/:id` — Get user by ID
+- `POST /users` — Create a user `{ email: string, name: string }`
+- `PUT /users/:id` — Update a user `{ email: string, name: string }`
+- `DELETE /users/:id` — Delete a user
+- `GET /metrics` — Prometheus metrics endpoint
 
 ---
 
@@ -163,8 +238,9 @@ docker run -d \
 
 ## ⚙️ CI/CD
 
-- Each app has its own GitHub Actions workflow for Docker build & push (see each `/project/.github/workflows/`)
-- Add Docker Hub secrets to each repo for automated publishing
+- GitHub Actions workflow for automated Docker build & push on push to main/master/develop branches
+- Images are tagged with version from `package.json` (e.g., `2.0.0`) plus SHA and `latest` tag
+- Add Docker Hub secrets (`DOCKER_USERNAME`, `DOCKER_PASSWORD`) to GitHub repository for automated publishing
 
 ---
 

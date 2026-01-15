@@ -5,6 +5,12 @@ export interface Task {
   task: string;
 }
 
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+}
+
 export const fetchMessage = async (): Promise<string> => {
   const config = await loadConfig();
   const response = await fetch(`${config.apiUrl}/`);
@@ -63,3 +69,52 @@ export const deleteTask = async (id: number): Promise<void> => {
     throw new Error("Failed to delete task");
   }
 };
+
+export const fetchUsers = async (): Promise<User[]> => {
+  const config = await loadConfig();
+  const response = await fetch(`${config.userApiUrl}/users`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch users");
+  }
+  const data = await response.json();
+  return data.users;
+};
+
+export const createUser = async (email: string, name: string): Promise<void> => {
+  const config = await loadConfig();
+  const response = await fetch(`${config.userApiUrl}/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, name }),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to create user");
+  }
+};
+
+export const editUser = async (id: number, email: string, name: string): Promise<void> => {
+  const config = await loadConfig();
+  const response = await fetch(`${config.userApiUrl}/users/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, name }),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to edit user");
+  }
+};
+
+export const deleteUser = async (id: number): Promise<void> => {
+  const config = await loadConfig();
+  const response = await fetch(`${config.userApiUrl}/users/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to delete user");
+  }
+};
+

@@ -1,8 +1,9 @@
-import { Elysia } from "elysia";
-import { cors } from "@elysiajs/cors";
-import pkg from "pg";
+import { task-services } from "task-services";
+import { cors } from "@task-servicesjs/cors";
+import pkg from "../node_modules/@types/pg";
 import dotenv from "dotenv";
 import winston from "winston";
+import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from "prom-client";
 
 dotenv.config();
 
@@ -17,6 +18,46 @@ type DatabaseOperation =
   | "UPDATE_TASK"
   | "DELETE_TASK";
 type LogContext = Record<string, any>;
+
+const register = new Registry();
+
+collectDefaultMetrics({ register });
+
+const httpRequestsTotal = new Counter({
+  name: "http_requests_total",
+  help: "Total number of HTTP requests",
+  labelNames: ["method", "route", "status_code"],
+  registers: [register],
+});
+
+const httpRequestDuration = new Histogram({
+  name: "http_request_duration_seconds",
+  help: "Duration of HTTP requests in seconds",
+  labelNames: ["method", "route", "status_code"],
+  buckets: [0.1, 0.5, 1, 2, 5, 10],
+  registers: [register],
+});
+
+const databaseOperationsTotal = new Counter({
+  name: "database_operations_total",
+  help: "Total number of database operations",
+  labelNames: ["operation", "status"],
+  registers: [register],
+});
+
+const databaseOperationDuration = new Histogram({
+  name: "database_operation_duration_seconds",
+  help: "Duration of database operations in seconds",
+  labelNames: ["operation"],
+  buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5],
+  registers: [register],
+});
+
+const databaseConnectionsActive = new Gauge({
+  name: "database_connections_active",
+  help: "Number of active database connections",
+  registers: [register],
+});
 
 const createLogger = () => {
   const isProduction = process.env.NODE_ENV === "production";
@@ -65,6 +106,7 @@ const createDatabasePool = () => {
   const pool = new Pool(config);
 
   pool.on("connect", () => {
+    databaseConnectionsActive.inc();
     logger.info("Database connection established", {
       target: "postgresql",
       host: config.host,
@@ -73,6 +115,7 @@ const createDatabasePool = () => {
   });
 
   pool.on("remove", () => {
+    databaseConnectionsActive.dec();
     logger.info("Database connection removed", {
       target: "postgresql",
       host: config.host,
@@ -132,17 +175,22 @@ const executeQuery = async <T>(
   | { success: true; data: T }
   | { success: false; message: string; error: string }
 > => {
+  const timer = databaseOperationDuration.startTimer({ operation });
   try {
     logDatabaseOperation(operation);
 
     const client = await pool.connect();
     try {
       const result = await client.query(query, params);
+      timer();
+      databaseOperationsTotal.inc({ operation, status: "success" });
       return { success: true, data: result.rows as T };
     } finally {
       client.release();
     }
   } catch (err) {
+    timer();
+    databaseOperationsTotal.inc({ operation, status: "error" });
     return handleDatabaseError(operation, err, set);
   }
 };
@@ -150,8 +198,27 @@ const executeQuery = async <T>(
 const logger = createLogger();
 const pool = createDatabasePool();
 
-const app = new Elysia()
+const normalizeRoute = (pathname: string): string => {
+  if (pathname.startsWith("/tasks/")) {
+    return "/tasks/:id";
+  }
+  return pathname;
+};
+
+const app = new task-services()
   .use(cors())
+  .derive(({ request }) => {
+    const url = new URL(request.url);
+    const route = normalizeRoute(url.pathname);
+    const method = request.method;
+    const timer = httpRequestDuration.startTimer({ method, route });
+
+    return {
+      metricsTimer: timer,
+      metricsRoute: route,
+      metricsMethod: method,
+    };
+  })
   .onRequest(({ request }) => {
     const url = new URL(request.url);
     logger.info("Request received", {
@@ -161,7 +228,29 @@ const app = new Elysia()
       timestamp: new Date(),
     });
   })
-  .get("/", () => ({ message: "Hello from ElysiaJS!" }))
+  .onAfterHandle(({ set, metricsTimer, metricsRoute, metricsMethod }) => {
+    const statusCode = set.status || 200;
+    metricsTimer?.({ status_code: statusCode.toString() });
+    if (metricsMethod && metricsRoute) {
+      httpRequestsTotal.inc({ 
+        method: metricsMethod, 
+        route: metricsRoute, 
+        status_code: statusCode.toString() 
+      });
+    }
+  })
+  .onError(({ set, metricsTimer, metricsRoute, metricsMethod }) => {
+    const statusCode = set.status || 500;
+    metricsTimer?.({ status_code: statusCode.toString() });
+    if (metricsMethod && metricsRoute) {
+      httpRequestsTotal.inc({ 
+        method: metricsMethod, 
+        route: metricsRoute, 
+        status_code: statusCode.toString() 
+      });
+    }
+  })
+  .get("/", () => ({ message: "Hello from task-servicesJS!" }))
   .get("/tasks", async ({ set, request }) => {
     const start = Date.now();
     logger.info("GET /tasks called", { method: request.method, url: request.url });
@@ -275,13 +364,20 @@ const app = new Elysia()
     logger.warn("Task not found for delete", { id, duration });
     return { success: false, message: "Task not found" };
   })
-  .listen(3000);
+  .get("/metrics", async ({ set }) => {
+    set.headers["Content-Type"] = register.contentType;
+    return await register.metrics();
+  })
+  .listen({
+    port: 3000,
+    hostname: "0.0.0.0"
+  });
 
 logger.info("Server started", {
-  address: `http://localhost:3000`,
+  address: `http://0.0.0.0:3000`,
   timestamp: new Date(),
 });
 
 console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
+  `🦊 task-services is running at ${app.server?.hostname}:${app.server?.port}`
 );

@@ -1,6 +1,6 @@
-import { task-services } from "task-services";
-import { cors } from "@task-servicesjs/cors";
-import pkg from "../node_modules/@types/pg";
+import { Elysia } from "elysia";
+import { cors } from "@elysiajs/cors";
+import { Pool } from "pg";
 import dotenv from "dotenv";
 import winston from "winston";
 import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from "prom-client";
@@ -91,40 +91,6 @@ const createLogger = () => {
   });
 };
 
-const createDatabasePool = () => {
-  const { Pool } = pkg;
-
-  const config = {
-    host: process.env.DB_HOST || "localhost",
-    port: Number(process.env.DB_PORT) || 5432,
-    user: process.env.DB_USER || "postgres",
-    password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_NAME || "postgres",
-    connectionTimeoutMillis: 10000,
-  };
-
-  const pool = new Pool(config);
-
-  pool.on("connect", () => {
-    databaseConnectionsActive.inc();
-    logger.info("Database connection established", {
-      target: "postgresql",
-      host: config.host,
-      database: config.database,
-    });
-  });
-
-  pool.on("remove", () => {
-    databaseConnectionsActive.dec();
-    logger.info("Database connection removed", {
-      target: "postgresql",
-      host: config.host,
-    });
-  });
-
-  return pool;
-};
-
 const logDatabaseOperation = (
   operation: DatabaseOperation,
   isStart: boolean = true,
@@ -196,6 +162,39 @@ const executeQuery = async <T>(
 };
 
 const logger = createLogger();
+
+const createDatabasePool = () => {
+  const config = {
+    host: process.env.DB_HOST || "localhost",
+    port: Number(process.env.DB_PORT) || 5432,
+    user: process.env.DB_USER || "postgres",
+    password: process.env.DB_PASSWORD || "",
+    database: process.env.DB_NAME || "postgres",
+    connectionTimeoutMillis: 10000,
+  };
+
+  const pool = new Pool(config);
+
+  pool.on("connect", () => {
+    databaseConnectionsActive.inc();
+    logger.info("Database connection established", {
+      target: "postgresql",
+      host: config.host,
+      database: config.database,
+    });
+  });
+
+  pool.on("remove", () => {
+    databaseConnectionsActive.dec();
+    logger.info("Database connection removed", {
+      target: "postgresql",
+      host: config.host,
+    });
+  });
+
+  return pool;
+};
+
 const pool = createDatabasePool();
 
 const normalizeRoute = (pathname: string): string => {
@@ -205,7 +204,7 @@ const normalizeRoute = (pathname: string): string => {
   return pathname;
 };
 
-const app = new task-services()
+const app = new Elysia()
   .use(cors())
   .derive(({ request }) => {
     const url = new URL(request.url);
@@ -358,7 +357,7 @@ const app = new task-services()
     const duration = Date.now() - start;
     if (result.success && result.data.length > 0) {
       logger.info("Task deleted", { id, duration });
-      return { success: true, message: "Task deleted successfully", id: result.data[0][COLUMN_ID] };
+      return { success: true, message: "Task deleted successfully", id: result.data[0].id };
     }
     set.status = 404;
     logger.warn("Task not found for delete", { id, duration });

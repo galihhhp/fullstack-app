@@ -67,7 +67,7 @@ const createServer = () => {
   });
 
   app.get("/metrics", async (request, reply) => {
-    reply.type("text/plain");
+    reply.type(register.contentType);
     return await register.metrics();
   });
 

@@ -3,7 +3,15 @@ import { cors } from "@elysiajs/cors";
 import { Pool } from "pg";
 import dotenv from "dotenv";
 import winston from "winston";
-import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from "prom-client";
+import {
+  Registry,
+  Counter,
+  Histogram,
+  Gauge,
+  collectDefaultMetrics,
+} from "prom-client";
+import { createRedisClient, checkRedisHealth } from "./redis";
+import { getCache, setCache, deleteCachePattern } from "./cache";
 
 dotenv.config();
 
@@ -120,14 +128,15 @@ const handleDatabaseError = (
   set.status = 500;
   return {
     success: false as const,
-    message: `Failed to ${operation.toLowerCase().includes("select")
-      ? "fetch"
-      : operation.toLowerCase().includes("update")
+    message: `Failed to ${
+      operation.toLowerCase().includes("select")
+        ? "fetch"
+        : operation.toLowerCase().includes("update")
         ? "edit"
         : operation.toLowerCase().includes("delete")
-          ? "delete"
-          : "add"
-      } task${operation.toLowerCase().includes("select") ? "s" : ""}`,
+        ? "delete"
+        : "add"
+    } task${operation.toLowerCase().includes("select") ? "s" : ""}`,
     error: errorMessage,
   };
 };
@@ -196,6 +205,7 @@ const createDatabasePool = () => {
 };
 
 const pool = createDatabasePool();
+createRedisClient(logger);
 
 const normalizeRoute = (pathname: string): string => {
   if (pathname.startsWith("/tasks/")) {
@@ -231,10 +241,10 @@ const app = new Elysia()
     const statusCode = set.status || 200;
     metricsTimer?.({ status_code: statusCode.toString() });
     if (metricsMethod && metricsRoute) {
-      httpRequestsTotal.inc({ 
-        method: metricsMethod, 
-        route: metricsRoute, 
-        status_code: statusCode.toString() 
+      httpRequestsTotal.inc({
+        method: metricsMethod,
+        route: metricsRoute,
+        status_code: statusCode.toString(),
       });
     }
   })
@@ -242,17 +252,29 @@ const app = new Elysia()
     const statusCode = set.status || 500;
     metricsTimer?.({ status_code: statusCode.toString() });
     if (metricsMethod && metricsRoute) {
-      httpRequestsTotal.inc({ 
-        method: metricsMethod, 
-        route: metricsRoute, 
-        status_code: statusCode.toString() 
+      httpRequestsTotal.inc({
+        method: metricsMethod,
+        route: metricsRoute,
+        status_code: statusCode.toString(),
       });
     }
   })
   .get("/", () => ({ message: "Hello from task-servicesJS!" }))
   .get("/tasks", async ({ set, request }) => {
+    const cacheKey = "tasks:all";
+    const cached = await getCache<Array<{ id: number; task: string }>>(
+      cacheKey
+    );
+    if (cached) {
+      logger.info("Tasks fetched from cache", { count: cached.length });
+      return { success: true, tasks: cached, cached: true };
+    }
+
     const start = Date.now();
-    logger.info("GET /tasks called", { method: request.method, url: request.url });
+    logger.info("GET /tasks called", {
+      method: request.method,
+      url: request.url,
+    });
     const result = await executeQuery<Array<{ id: number; task: string }>>(
       "SELECT_TASKS",
       `SELECT ${COLUMN_ID}, ${COLUMN_TASK} FROM ${TABLE} ORDER BY ${COLUMN_ID} ASC`,
@@ -261,16 +283,31 @@ const app = new Elysia()
     );
     const duration = Date.now() - start;
     if (result.success) {
-      logger.info("Tasks fetched", { count: result.data.length, duration });
-      return { success: true, tasks: result.data };
+      await setCache(cacheKey, result.data, 60);
+      logger.info("Tasks fetched from database", {
+        count: result.data.length,
+        duration,
+      });
+      return { success: true, tasks: result.data, cached: false };
     }
     logger.error("Failed to fetch tasks", { error: result.error, duration });
     return result;
   })
   .get("/tasks/:id", async ({ params, set, request }) => {
     const { id } = params as { id: string };
+    const cacheKey = `tasks:id:${id}`;
+    const cached = await getCache<{ id: number; task: string }>(cacheKey);
+    if (cached) {
+      logger.info("Task found in cache", { id });
+      return { success: true, task: cached, cached: true };
+    }
+
     const start = Date.now();
-    logger.info("GET /tasks/:id called", { id, method: request.method, url: request.url });
+    logger.info("GET /tasks/:id called", {
+      id,
+      method: request.method,
+      url: request.url,
+    });
     const result = await executeQuery<Array<{ id: number; task: string }>>(
       "SELECT_TASK_BY_ID",
       `SELECT ${COLUMN_ID}, ${COLUMN_TASK} FROM ${TABLE} WHERE ${COLUMN_ID} = $1`,
@@ -279,8 +316,9 @@ const app = new Elysia()
     );
     const duration = Date.now() - start;
     if (result.success && result.data.length > 0) {
+      await setCache(cacheKey, result.data[0], 60);
       logger.info("Task found", { id, task: result.data[0], duration });
-      return { success: true, task: result.data[0] };
+      return { success: true, task: result.data[0], cached: false };
     }
     logger.warn("Task not found", { id, duration });
     set.status = 404;
@@ -288,7 +326,11 @@ const app = new Elysia()
   })
   .post("/tasks", async ({ body, set, request }) => {
     const start = Date.now();
-    logger.info("POST /tasks called", { body, method: request.method, url: request.url });
+    logger.info("POST /tasks called", {
+      body,
+      method: request.method,
+      url: request.url,
+    });
     const { task } = body as { task?: string };
     if (!task) {
       set.status = 400;
@@ -303,8 +345,13 @@ const app = new Elysia()
     );
     const duration = Date.now() - start;
     if (result.success) {
+      await deleteCachePattern("tasks:*");
       logger.info("Task added", { task: result.data[0], duration });
-      return { success: true, message: "Task added successfully", task: result.data[0] };
+      return {
+        success: true,
+        message: "Task added successfully",
+        task: result.data[0],
+      };
     }
     logger.error("Failed to add task", { error: result.error, duration });
     return result;
@@ -318,7 +365,12 @@ const app = new Elysia()
     const { id } = params as { id: string };
     const { task } = body as { task?: string };
     const start = Date.now();
-    logger.info("PUT /tasks/:id called", { id, body, method: request.method, url: request.url });
+    logger.info("PUT /tasks/:id called", {
+      id,
+      body,
+      method: request.method,
+      url: request.url,
+    });
     if (!task) {
       set.status = 400;
       logger.warn("Task is required for edit", { id, body });
@@ -332,8 +384,13 @@ const app = new Elysia()
     );
     const duration = Date.now() - start;
     if (result.success && result.data.length > 0) {
+      await deleteCachePattern("tasks:*");
       logger.info("Task updated", { id, task: result.data[0], duration });
-      return { success: true, message: "Task updated successfully", task: result.data[0] };
+      return {
+        success: true,
+        message: "Task updated successfully",
+        task: result.data[0],
+      };
     }
     set.status = 404;
     logger.warn("Task not found for update", { id, duration });
@@ -347,7 +404,11 @@ const app = new Elysia()
     }
     const { id } = params as { id: string };
     const start = Date.now();
-    logger.info("DELETE /tasks/:id called", { id, method: request.method, url: request.url });
+    logger.info("DELETE /tasks/:id called", {
+      id,
+      method: request.method,
+      url: request.url,
+    });
     const result = await executeQuery<Array<{ id: number }>>(
       "DELETE_TASK",
       `DELETE FROM ${TABLE} WHERE ${COLUMN_ID} = $1 RETURNING ${COLUMN_ID}`,
@@ -356,12 +417,75 @@ const app = new Elysia()
     );
     const duration = Date.now() - start;
     if (result.success && result.data.length > 0) {
+      await deleteCachePattern("tasks:*");
       logger.info("Task deleted", { id, duration });
-      return { success: true, message: "Task deleted successfully", id: result.data[0].id };
+      return {
+        success: true,
+        message: "Task deleted successfully",
+        id: result.data[0].id,
+      };
     }
     set.status = 404;
     logger.warn("Task not found for delete", { id, duration });
     return { success: false, message: "Task not found" };
+  })
+  .get("/health", async () => {
+    return {
+      status: "healthy",
+      service: "task-services",
+      timestamp: new Date().toISOString(),
+    };
+  })
+  .get("/live", async () => {
+    return {
+      status: "alive",
+      service: "task-services",
+      timestamp: new Date().toISOString(),
+    };
+  })
+  .get("/ready", async ({ set }) => {
+    try {
+      const client = await pool.connect();
+      await client.query("SELECT 1");
+      client.release();
+      return {
+        status: "ready",
+        service: "task-services",
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err) {
+      set.status = 503;
+      return {
+        status: "not ready",
+        service: "task-services",
+        error: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      };
+    }
+  })
+  .get("/health/redis", async ({ set }) => {
+    const isEnabled = process.env.FEATURE_REDIS_CACHE === "true";
+    if (!isEnabled) {
+      return {
+        status: "disabled",
+        service: "redis",
+        message: "Redis caching is disabled via feature flag",
+      };
+    }
+    const isHealthy = await checkRedisHealth();
+    if (isHealthy) {
+      return {
+        status: "healthy",
+        service: "redis",
+        timestamp: new Date().toISOString(),
+      };
+    }
+    set.status = 503;
+    return {
+      status: "unhealthy",
+      service: "redis",
+      timestamp: new Date().toISOString(),
+    };
   })
   .get("/metrics", async ({ set }) => {
     set.headers["Content-Type"] = register.contentType;
@@ -369,7 +493,7 @@ const app = new Elysia()
   })
   .listen({
     port: 3000,
-    hostname: "0.0.0.0"
+    hostname: "0.0.0.0",
   });
 
 logger.info("Server started", {

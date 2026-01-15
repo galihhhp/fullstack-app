@@ -60,6 +60,8 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
+export const getDatabasePool = () => pool;
+
 export const setupDatabasePoolEvents = () => {
   pool.on("connect", () => {
     if (databaseConnectionsActive) {

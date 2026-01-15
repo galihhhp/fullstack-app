@@ -68,6 +68,11 @@ cp .env.example .env # Edit as needed
 | DB_COLUMN_TASK      | Task column name                        | task        |
 | FEATURE_EDIT_TASK   | Enable edit task API ("true"/"false")   | false       |
 | FEATURE_DELETE_TASK | Enable delete task API ("true"/"false") | false       |
+| FEATURE_REDIS_CACHE | Enable Redis caching ("true"/"false")    | false       |
+| REDIS_HOST          | Redis host                              | localhost   |
+| REDIS_PORT          | Redis port                              | 6379        |
+| REDIS_PASSWORD      | Redis password (optional)                | ""          |
+| REDIS_TTL           | Cache TTL in seconds                    | 60          |
 
 #### Scripts
 
@@ -93,6 +98,10 @@ docker run -d \
   -e DB_COLUMN_TASK=task \
   -e FEATURE_EDIT_TASK=true \
   -e FEATURE_DELETE_TASK=true \
+  -e FEATURE_REDIS_CACHE=true \
+  -e REDIS_HOST=redis \
+  -e REDIS_PORT=6379 \
+  -e REDIS_TTL=60 \
   your-dockerhub-username/task-services:latest
 ```
 
@@ -105,6 +114,7 @@ docker run -d \
 - `PUT /tasks/:id` — Edit a task (if enabled)
 - `DELETE /tasks/:id` — Delete a task (if enabled)
 - `GET /metrics` — Prometheus metrics endpoint
+- `GET /health/redis` — Redis health check endpoint
 
 ---
 
@@ -135,6 +145,11 @@ cp .env.example .env # Edit as needed
 | DB_USERS_COLUMN_ID        | ID column name                          | id          |
 | DB_USERS_COLUMN_EMAIL     | Email column name                       | email       |
 | DB_USERS_COLUMN_NAME      | Name column name                        | name        |
+| FEATURE_REDIS_CACHE       | Enable Redis caching ("true"/"false")    | false       |
+| REDIS_HOST                | Redis host                              | localhost   |
+| REDIS_PORT                | Redis port                              | 6379        |
+| REDIS_PASSWORD            | Redis password (optional)                | ""          |
+| REDIS_TTL                 | Cache TTL in seconds                    | 60          |
 
 #### Scripts
 
@@ -159,6 +174,10 @@ docker run -d \
   -e DB_USERS_COLUMN_ID=id \
   -e DB_USERS_COLUMN_EMAIL=email \
   -e DB_USERS_COLUMN_NAME=name \
+  -e FEATURE_REDIS_CACHE=true \
+  -e REDIS_HOST=redis \
+  -e REDIS_PORT=6379 \
+  -e REDIS_TTL=60 \
   your-dockerhub-username/user-services:latest
 ```
 
@@ -226,13 +245,22 @@ docker run -d \
 
 ---
 
-## 🧩 Feature Flags (Edit & Delete)
+## 🧩 Feature Flags
 
+### Edit & Delete Features
 - **Backend:**
   - Set `FEATURE_EDIT_TASK` dan `FEATURE_DELETE_TASK` di env ("true" untuk enable)
 - **Frontend:**
   - Set `VITE_FEATURE_EDIT_TASK` dan `VITE_FEATURE_DELETE_TASK` di env runtime ("true" untuk enable)
   - UI hanya akan menampilkan fitur edit/delete jika env aktif saat container dijalankan
+
+### Redis Caching
+- **Both Services (task-services & user-services):**
+  - Set `FEATURE_REDIS_CACHE=true` untuk enable Redis caching
+  - Set `FEATURE_REDIS_CACHE=false` atau omit untuk disable (default: false)
+  - Jika disabled, aplikasi langsung query database tanpa cache
+  - Jika enabled tapi Redis down, aplikasi akan fallback ke database (graceful degradation)
+  - Health check: `GET /health/redis` untuk cek status Redis
 
 ---
 

@@ -44,17 +44,31 @@ function App() {
   } = useUserManager();
   const [featureEditTask, setFeatureEditTask] = useState(false);
   const [featureDeleteTask, setFeatureDeleteTask] = useState(false);
+  const [featureShowTasks, setFeatureShowTasks] = useState(true);
+  const [featureShowUsers, setFeatureShowUsers] = useState(true);
 
   useEffect(() => {
     loadConfig().then((cfg) => {
       if (cfg) {
         setFeatureEditTask(cfg.featureEditTask);
         setFeatureDeleteTask(cfg.featureDeleteTask);
+        setFeatureShowTasks(cfg.featureShowTasks);
+        setFeatureShowUsers(cfg.featureShowUsers);
       }
     });
-    getTasks();
-    getUsers();
-  }, [getTasks, getUsers]);
+  }, []);
+
+  useEffect(() => {
+    if (featureShowTasks) {
+      getTasks();
+    }
+  }, [featureShowTasks, getTasks]);
+
+  useEffect(() => {
+    if (featureShowUsers) {
+      getUsers();
+    }
+  }, [featureShowUsers, getUsers]);
 
   return (
     <div className="app-container">
@@ -70,81 +84,84 @@ function App() {
       </header>
 
       <main className="app-main">
-        <section className="section">
-          <div className="card">
-            <form onSubmit={handleCreateTask} className="form">
-              <input
-                type="text"
-                value={newTask}
-                onChange={(e) => setNewTask(e.target.value)}
-                placeholder="Add a new task"
-                aria-label="New task input"
-                className="input"
-              />
-              <button type="submit" className="btn btn-primary">Add Task</button>
-            </form>
-          </div>
+        {featureShowTasks && (
+          <section className="section">
+            <div className="card">
+              <form onSubmit={handleCreateTask} className="form">
+                <input
+                  type="text"
+                  value={newTask}
+                  onChange={(e) => setNewTask(e.target.value)}
+                  placeholder="Add a new task"
+                  aria-label="New task input"
+                  className="input"
+                />
+                <button type="submit" className="btn btn-primary">Add Task</button>
+              </form>
+            </div>
 
-          <div className="section-header">
-            <h2>Tasks</h2>
-            <span className="count">{tasks.length}</span>
-          </div>
-          
-          <ul className="list">
-            {tasks.length > 0 ? (
-              tasks.map((task) => (
-                <li key={task.id} className="list-item">
-                  {editTaskId === task.id ? (
-                    <div className="edit-form">
-                      <input
-                        type="text"
-                        value={editTaskValue}
-                        onChange={(e) => setEditTaskValue(e.target.value)}
-                        aria-label="Edit task input"
-                        autoFocus
-                        className="input"
-                      />
-                      <div className="btn-group">
-                        <button onClick={() => handleEditTask(task.id)} type="button" className="btn btn-primary btn-sm">
-                          Save
-                        </button>
-                        <button onClick={cancelEditTask} type="button" className="btn btn-secondary btn-sm">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="list-item-content">
-                      <span className="list-item-text">{task.task}</span>
-                      <div className="list-item-actions">
-                        {featureEditTask && (
-                          <button
-                            onClick={() => startEditTask(task.id, task.task)}
-                            type="button"
-                            className="btn btn-ghost btn-sm">
-                            Edit
+            <div className="section-header">
+              <h2>Tasks</h2>
+              <span className="count">{tasks.length}</span>
+            </div>
+            
+            <ul className="list">
+              {tasks.length > 0 ? (
+                tasks.map((task) => (
+                  <li key={task.id} className="list-item">
+                    {editTaskId === task.id ? (
+                      <div className="edit-form">
+                        <input
+                          type="text"
+                          value={editTaskValue}
+                          onChange={(e) => setEditTaskValue(e.target.value)}
+                          aria-label="Edit task input"
+                          autoFocus
+                          className="input"
+                        />
+                        <div className="btn-group">
+                          <button onClick={() => handleEditTask(task.id)} type="button" className="btn btn-primary btn-sm">
+                            Save
                           </button>
-                        )}
-                        {featureDeleteTask && (
-                          <button
-                            onClick={() => handleDeleteTask(task.id)}
-                            type="button"
-                            className="btn btn-ghost btn-sm btn-danger">
-                            Delete
+                          <button onClick={cancelEditTask} type="button" className="btn btn-secondary btn-sm">
+                            Cancel
                           </button>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </li>
-              ))
-            ) : (
-              <li className="list-item list-item-empty">No tasks yet.</li>
-            )}
-          </ul>
-        </section>
+                    ) : (
+                      <div className="list-item-content">
+                        <span className="list-item-text">{task.task}</span>
+                        <div className="list-item-actions">
+                          {featureEditTask && (
+                            <button
+                              onClick={() => startEditTask(task.id, task.task)}
+                              type="button"
+                              className="btn btn-ghost btn-sm">
+                              Edit
+                            </button>
+                          )}
+                          {featureDeleteTask && (
+                            <button
+                              onClick={() => handleDeleteTask(task.id)}
+                              type="button"
+                              className="btn btn-ghost btn-sm btn-danger">
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))
+              ) : (
+                <li className="list-item list-item-empty">No tasks yet.</li>
+              )}
+            </ul>
+          </section>
+        )}
 
-        <section className="section">
+        {featureShowUsers && (
+          <section className="section">
           <div className="card">
             <form onSubmit={handleCreateUser} className="form form-multi">
               <input
@@ -230,7 +247,8 @@ function App() {
               <li className="list-item list-item-empty">No users yet.</li>
             )}
           </ul>
-        </section>
+          </section>
+        )}
       </main>
 
       <footer className="app-footer">

@@ -3,6 +3,8 @@ type Config = {
   userApiUrl: string;
   featureEditTask: boolean;
   featureDeleteTask: boolean;
+  featureShowTasks: boolean;
+  featureShowUsers: boolean;
 };
 
 let config: Config | null = null;
@@ -17,6 +19,8 @@ export const loadConfig = async (): Promise<Config> => {
       userApiUrl: json.userApiUrl || "http://localhost:4000",
       featureEditTask: json.featureEditTask === true || json.featureEditTask === "true",
       featureDeleteTask: json.featureDeleteTask === true || json.featureDeleteTask === "true",
+      featureShowTasks: json.featureShowTasks !== false && json.featureShowTasks !== "false",
+      featureShowUsers: json.featureShowUsers !== false && json.featureShowUsers !== "false",
     };
     return config;
   } catch {
@@ -25,6 +29,8 @@ export const loadConfig = async (): Promise<Config> => {
       userApiUrl: "http://localhost:4000",
       featureEditTask: false,
       featureDeleteTask: false,
+      featureShowTasks: true,
+      featureShowUsers: true,
     };
     return config;
   }
